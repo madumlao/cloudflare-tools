@@ -56,7 +56,7 @@ fi
 
 # initial processing
 SEARCHZONES_OPTS="--url $CLOUDFLARE_URL --token $CLOUDFLARE_TOKEN"
-ZONE_ID="$(cloudflare-searchzones $SEARCHZONES_OPTS $ZONE | jq -r '.[0].id')"
+ZONE_ID="$(cloudflare-searchzones $SEARCHZONES_OPTS $ZONE | jq -r '.[0].id' -)"
 if [ "$ZONE_ID" = "null" ]; then
 	echo "Unable to find zone $ZONE"
 	exit 2
@@ -69,4 +69,4 @@ fi
 
 ## run
 GETDNS_OPTS="--url $CLOUDFLARE_URL --token $CLOUDFLARE_TOKEN"
-cloudflare-getdns $GETDNS_OPTS "$ZONE" | jq '[ .[]|{id: .id, type: .type, name: .name, content: .content, proxied: .proxied, ttl: .ttl, priority: .priority}|select('"$FILTER"') ]'
+cloudflare-getdns $GETDNS_OPTS "$ZONE" | jq '[ .[]|{id: .id, type: .type, name: .name, content: .content, proxied: .proxied, ttl: .ttl, priority: .priority}|select('"$FILTER"') ]' -

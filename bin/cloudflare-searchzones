@@ -46,4 +46,4 @@ fi
 
 ## run
 GETZONES_OPTS="--token=$CLOUDFLARE_TOKEN --url=$CLOUDFLARE_URL"
-cloudflare-getzones $GETZONES_OPTS | jq '[ .[] | {id: .id, name: .name} | select(.name == "'"$SEARCH"'" or .id == "'"$SEARCH"'") ]'
+cloudflare-getzones $GETZONES_OPTS | jq '[ .[] | {id: .id, name: .name} | select(.name == "'"$SEARCH"'" or .id == "'"$SEARCH"'") ]' -

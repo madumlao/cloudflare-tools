@@ -47,7 +47,7 @@ fi
 
 # initial processing
 SEARCHZONES_OPTS="--url $CLOUDFLARE_URL --token $CLOUDFLARE_TOKEN"
-ZONE_ID="$(cloudflare-searchzones $SEARCHZONES_OPTS $ZONE | jq -r '.[0].id')"
+ZONE_ID="$(cloudflare-searchzones $SEARCHZONES_OPTS $ZONE | jq -r '.[0].id' -)"
 if [ "$ZONE_ID" = "null" ]; then
 	echo "Unable to find zone $ZONE"
 	exit 2
@@ -64,10 +64,10 @@ DATA
 RAW_RESPONSE="$(cat $TMPFILE)"
 RAW_HEADERS="$(cat $TMPFILE| sed -n '1,/^\s*$/p'| head -n-1)"
 RAW_BODY="$(cat $TMPFILE| sed -n '/^\s*$/,$p'| tail -n +2)"
-RAW_PARSED="$(echo "$RAW_BODY" | jq )"
-ERRORS="$(echo "$RAW_PARSED" | jq .errors)"
-SUCCESS="$(echo "$RAW_PARSED" | jq .success)"
-MESSAGES="$(echo "$RAW_PARSED" | jq .messages)"
-RESULT="$(echo "$RAW_PARSED" | jq .result)"
-echo "$RESULT" | jq '[ .[]|{id: .id, type: .type, name: .name, content: .content, proxied: .proxied, ttl: .ttl, priority: .priority} ]'
+RAW_PARSED="$(echo "$RAW_BODY" | jq '' -)"
+ERRORS="$(echo "$RAW_PARSED" | jq .errors -)"
+SUCCESS="$(echo "$RAW_PARSED" | jq .success -)"
+MESSAGES="$(echo "$RAW_PARSED" | jq .messages -)"
+RESULT="$(echo "$RAW_PARSED" | jq .result -)"
+echo "$RESULT" | jq '[ .[]|{id: .id, type: .type, name: .name, content: .content, proxied: .proxied, ttl: .ttl, priority: .priority} ]' -
 rm "$TMPFILE"
