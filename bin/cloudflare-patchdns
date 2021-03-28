@@ -1,0 +1,107 @@
+#!/bin/bash
+# update a cloudflare dns entry
+#
+NAME="$(basename $0)"
+OPTS=`getopt -n $NAME -o hu:t:T:i: --long help,url:,token:,type:,ip: -- "$@"`
+if [ "$?" != 0 ]; then echo "Failed to parse options"; exit 1; fi
+
+CLOUDFLARE_URL_DEFAULT="https://api.cloudflare.com/client/v4"
+CLOUDFLARE_URL="$CLOUDFLARE_URL_DEFAULT"
+TYPE=
+ACTION=run
+while true; do
+	case "$1" in
+		-h| --help) ACTION=help; shift;;
+		-u| --url) CLOUDFLARE_URL="$2"; shift 2;;
+		-t| --token) CLOUDFLARE_TOKEN="$2"; shift 2;;
+		-T| --type) SEARCH_TYPE="$2"; shift 2;;
+		-i| --ip) IP="$2"; shift 2;;
+		--) shift; break;;
+		*) break;;
+	esac
+done
+ZONE="$1"
+SEARCH="$2"
+
+ct_help() {
+	cat <<-END
+	$NAME zone search: update a DNS entry
+	
+	-h|--help        : this help
+	-u|--url URL     : cloudflare api url (defaults to \$CLOUDFLARE_URL or $CLOUDFLARE_URL_DEFAULT)
+	-t|--token TOKEN : cloudflare token   (defaults to \$CLOUDFLARE_TOKEN)
+	-T|--type TYPE   : filter dns entry by type (defaults to all entries)
+	-i|--ip IP       : manually provide the IP address (defaults to public ip)
+	END
+}
+
+# process args
+if [ "$ACTION" = "help" ]; then
+	ct_help
+	exit
+fi
+
+if [ -z "$CLOUDFLARE_TOKEN" ]; then
+	echo "Cloudflare token not provided. Please pass -t or set the \$CLOUDFLARE_TOKEN variable"
+	exit 1
+fi
+
+if [ -z "$ZONE" ]; then
+	echo "Zone not provided."
+	exit 1
+fi
+
+if [ -z "$SEARCH" ]; then
+	echo "Search term not provided."
+	exit 1
+fi
+
+FILTER='.name == "'"$SEARCH"'"'
+if [ "$SEARCH_TYPE" ]; then
+	FILTER="$FILTER and .type == \"$SEARCH_TYPE\""
+fi
+
+# initial processing
+SEARCHZONES_OPTS="--url $CLOUDFLARE_URL --token $CLOUDFLARE_TOKEN"
+ZONE_ID="$(cloudflare-searchzones $SEARCHZONES_OPTS $ZONE | jq -r '.[0].id')"
+if [ "$ZONE_ID" = "null" ]; then
+	echo "Cannot find zone $ZONE"
+	exit 2
+fi
+
+SEARCHDNS_OPTS="--url $CLOUDFLARE_URL --token $CLOUDFLARE_TOKEN"
+RECORD_ID="$(cloudflare-searchdns $SEARCHDNS_OPTS $ZONE $SEARCH | jq -r '.[0]|.id' )"
+if [ "$RECORD_ID" = "null" ]; then
+	echo "Cannot find record $RECORD"
+	exit 2
+fi
+
+# if IP is not provided, determine public IP from the internet
+if [ -z "$IP" ]; then
+	IP="$(curl -s "https://api.ipify.org")"
+fi
+CONTENT_FILE="$(mktemp)"
+cat <<-CONTENT > "$CONTENT_FILE"
+{
+  "content": "$IP"
+}
+CONTENT
+
+## run
+TMPFILE="$(mktemp)"
+curl -sLD - -X PATCH "$CLOUDFLARE_URL/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+     -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
+     -H "Content-type: application/json" \
+     --data "@$CONTENT_FILE" \
+     | tee "$TMPFILE"  > /dev/null
+RAW_RESPONSE="$(cat $TMPFILE)"
+RAW_HEADERS="$(cat $TMPFILE| sed -n '1,/^\s*$/p'| head -n-1)"
+RAW_BODY="$(cat $TMPFILE| sed -n '/^\s*$/,$p'| tail -n +2)"
+RAW_PARSED="$(echo "$RAW_BODY" | jq )"
+ERRORS="$(echo "$RAW_PARSED" | jq .errors)"
+SUCCESS="$(echo "$RAW_PARSED" | jq .success)"
+MESSAGES="$(echo "$RAW_PARSED" | jq .messages)"
+RESULT="$(echo "$RAW_PARSED" | jq .result)"
+echo "$RESULT" | jq
+rm "$TMPFILE"
+rm "$CONTENT_FILE"

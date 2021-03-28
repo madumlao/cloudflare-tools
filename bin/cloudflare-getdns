@@ -1,0 +1,73 @@
+#!/bin/bash
+# list dns entries for a zone
+
+NAME="$(basename $0)"
+OPTS=`getopt -n $NAME -o hu:t: --long help,url:,token: -- "$@"`
+if [ "$?" != 0 ]; then echo "Failed to parse options"; exit 1; fi
+
+CLOUDFLARE_URL_DEFAULT="https://api.cloudflare.com/client/v4"
+CLOUDFLARE_URL="$CLOUDFLARE_URL_DEFAULT"
+ACTION=run
+while true; do
+	case "$1" in
+	        -h| --help) ACTION=help; shift;;
+	        -u| --url) CLOUDFLARE_URL="$2"; shift 2;;
+	        -t| --token) CLOUDFLARE_TOKEN="$2"; shift 2;;
+		--) shift; break;;
+	        * ) break;;
+	esac
+done
+ZONE="$1"
+
+ct_help() {
+	cat <<-END
+	$NAME zoneid: list dns entries for a zone
+	
+	-h|--help        : this help
+	-u|--url URL     : cloudflare api url (defaults to \$CLOUDFLARE_URL or $CLOUDFLARE_URL_DEFAULT)
+	-t|--token TOKEN : cloudflare token   (defaults to \$CLOUDFLARE_TOKEN)
+	END
+}
+
+# process args
+if [ "$ACTION" = "help" ]; then
+	ct_help
+	exit
+fi
+
+if [ -z "$CLOUDFLARE_TOKEN" ]; then
+	echo "Cloudflare token not provided. Please pass -t or set the \$CLOUDFLARE_TOKEN variable"
+	exit 1
+fi
+
+if [ -z "$ZONE" ]; then
+	echo "Zone not provided."
+	exit 1
+fi
+
+# initial processing
+SEARCHZONES_OPTS="--url $CLOUDFLARE_URL --token $CLOUDFLARE_TOKEN"
+ZONE_ID="$(cloudflare-searchzones $SEARCHZONES_OPTS $ZONE | jq -r '.[0].id')"
+if [ "$ZONE_ID" = "null" ]; then
+	echo "Unable to find zone $ZONE"
+	exit 2
+fi
+
+## run
+TMPFILE="$(mktemp)"
+curl -sLD - -X GET "$CLOUDFLARE_URL/zones/$ZONE_ID/dns_records" \
+     -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
+     -H "Content-Type: application/json" \
+     --data @- <<-DATA \
+     | tee "$TMPFILE" > /dev/null
+DATA
+RAW_RESPONSE="$(cat $TMPFILE)"
+RAW_HEADERS="$(cat $TMPFILE| sed -n '1,/^\s*$/p'| head -n-1)"
+RAW_BODY="$(cat $TMPFILE| sed -n '/^\s*$/,$p'| tail -n +2)"
+RAW_PARSED="$(echo "$RAW_BODY" | jq )"
+ERRORS="$(echo "$RAW_PARSED" | jq .errors)"
+SUCCESS="$(echo "$RAW_PARSED" | jq .success)"
+MESSAGES="$(echo "$RAW_PARSED" | jq .messages)"
+RESULT="$(echo "$RAW_PARSED" | jq .result)"
+echo "$RESULT" | jq '[ .[]|{id: .id, type: .type, name: .name, content: .content, proxied: .proxied, ttl: .ttl, priority: .priority} ]'
+rm "$TMPFILE"

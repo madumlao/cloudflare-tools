@@ -1,0 +1,49 @@
+#!/bin/bash
+# search for a specific cloudflare zone
+
+NAME="$(basename $0)"
+OPTS=`getopt -n $NAME -o hu:t: --long help,url:,token: -- "$@"`
+if [ "$?" != 0 ]; then echo "Failed to parse options"; exit 1; fi
+
+CLOUDFLARE_URL_DEFAULT="https://api.cloudflare.com/client/v4"
+CLOUDFLARE_URL="$CLOUDFLARE_URL_DEFAULT"
+ACTION=run
+while true; do
+	case "$1" in
+	        -h| --help) ACTION=help; shift;;
+	        -u| --url) CLOUDFLARE_URL="$2"; shift 2;;
+	        -t| --token) CLOUDFLARE_TOKEN="$2"; shift 2;;
+		--) shift; break;;
+	        * ) break;;
+	esac
+done
+SEARCH="$1"
+
+ct_help() {
+	cat <<-END
+	$NAME zoneid: list dns entries for a zone
+	
+	-h|--help        : this help
+	-u|--url URL     : cloudflare api url (defaults to \$CLOUDFLARE_URL or $CLOUDFLARE_URL_DEFAULT)
+	-t|--token TOKEN : cloudflare token   (defaults to \$CLOUDFLARE_TOKEN)
+	END
+}
+
+if [ "$ACTION" = "help" ]; then
+	ct_help
+	exit
+fi
+
+if [ -z "$CLOUDFLARE_TOKEN" ]; then
+	echo "Cloudflare token not provided. Please pass -t or set the \$CLOUDFLARE_TOKEN variable"
+	exit 1
+fi
+
+if [ -z "$SEARCH" ]; then
+	echo "Search term not provided."
+	exit 1
+fi
+
+## run
+GETZONES_OPTS="--token=$CLOUDFLARE_TOKEN --url=$CLOUDFLARE_URL"
+cloudflare-getzones $GETZONES_OPTS | jq '[ .[] | {id: .id, name: .name} | select(.name == "'"$SEARCH"'" or .id == "'"$SEARCH"'") ]'
