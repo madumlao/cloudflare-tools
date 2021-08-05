@@ -82,7 +82,7 @@ fi
 
 # if IP is not provided, determine public IP from the internet
 if [ -z "$IP" ]; then
-	IP="$(curl -s "https://api.ipify.org")"
+	IP="$(curl -s "https://api64.ipify.org")"
 fi
 CONTENT_FILE="$(mktemp)"
 cat <<-CONTENT > "$CONTENT_FILE"
