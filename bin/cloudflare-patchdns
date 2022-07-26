@@ -2,7 +2,7 @@
 # update a cloudflare dns entry
 #
 NAME="$(basename $0)"
-OPTS=`getopt -n $NAME -o hu:t:T:i:s --long help,url:,token:,type:,ip:,silent -- "$@"`
+OPTS=`getopt -n $NAME -o hu:t:T:i:6:s --long help,url:,token:,type:,ip:,ip6:,silent -- "$@"`
 if [ "$?" != 0 ]; then echo "Failed to parse options"; exit 1; fi
 
 CLOUDFLARE_URL_DEFAULT="https://api.cloudflare.com/client/v4"
@@ -15,9 +15,9 @@ while true; do
 		-h| --help) ACTION=help; shift;;
 		-u| --url) CLOUDFLARE_URL="$2"; shift 2;;
 		-t| --token) CLOUDFLARE_TOKEN="$2"; shift 2;;
-		-T| --type) SEARCH_TYPE="$2"; shift 2;;
 		-s| --silent) SILENT=yes; shift;;
 		-i| --ip) IP="$2"; shift 2;;
+		-6| --ip6) IP6="$2"; shift 2;;
 		--) shift; break;;
 		*) break;;
 	esac
@@ -34,6 +34,7 @@ ct_help() {
 	-t|--token TOKEN : cloudflare token   (defaults to \$CLOUDFLARE_TOKEN)
 	-T|--type TYPE   : filter dns entry by type (defaults to all entries)
 	-i|--ip IP       : manually provide the IP address (defaults to public ip)
+	-6|--ip6 IP6     : manually provide an IPv6 address (defaults to public ip)
 	-s|--silent      : only output errors / messages if present
 
 	END
@@ -60,11 +61,6 @@ if [ -z "$SEARCH" ]; then
 	exit 1
 fi
 
-FILTER='.name == "'"$SEARCH"'"'
-if [ "$SEARCH_TYPE" ]; then
-	FILTER="$FILTER and .type == \"$SEARCH_TYPE\""
-fi
-
 # initial processing
 SEARCHZONES_OPTS="--url $CLOUDFLARE_URL --token $CLOUDFLARE_TOKEN"
 ZONE_ID="$(cloudflare-searchzones $SEARCHZONES_OPTS $ZONE | jq -r '.[0].id' -)"
@@ -73,25 +69,28 @@ if [ "$ZONE_ID" = "null" ]; then
 	exit 2
 fi
 
+# if IP is not provided, determine public IP from the internet
+if [ -z "$IP" ]; then
+	IP="$(curl -s "https://api.ipify.org")"
+fi
+if [ -z "$IP6" ]; then
+	IP6="$(curl -s "https://api64.ipify.org")"
+fi
+
+## run ipv4
 SEARCHDNS_OPTS="--url $CLOUDFLARE_URL --token $CLOUDFLARE_TOKEN"
-RECORD_ID="$(cloudflare-searchdns $SEARCHDNS_OPTS $ZONE $SEARCH | jq -r '.[0]|.id' -)"
+RECORD_ID="$(cloudflare-searchdns -T A $SEARCHDNS_OPTS $ZONE $SEARCH | jq -r '.[0]|.id' -)"
 if [ "$RECORD_ID" = "null" ]; then
 	echo "Cannot find record $RECORD"
 	exit 2
 fi
 
-# if IP is not provided, determine public IP from the internet
-if [ -z "$IP" ]; then
-	IP="$(curl -s "https://api64.ipify.org")"
-fi
 CONTENT_FILE="$(mktemp)"
 cat <<-CONTENT > "$CONTENT_FILE"
 {
   "content": "$IP"
 }
 CONTENT
-
-## run
 TMPFILE="$(mktemp)"
 curl -sLD - -X PATCH "$CLOUDFLARE_URL/zones/$ZONE_ID/dns_records/$RECORD_ID" \
      -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
@@ -117,3 +116,44 @@ if [ -z "$SILENT" ] || [ "$SUCCESS" != "true" ]; then
 fi
 rm "$TMPFILE"
 rm "$CONTENT_FILE"
+
+if [ "$IP6" ] && [ "$IP" != "$IP6" ]; then
+	RECORD_ID6="$(cloudflare-searchdns -T AAAA $SEARCHDNS_OPTS $ZONE $SEARCH | jq -r '.[0]|.id' -)"
+	if [ "$RECORD_ID6" = "null" ]; then
+		echo "Cannot find record $RECORD6"
+		exit 2
+	fi
+
+	CONTENT_FILE6="$(mktemp)"
+	cat <<-CONTENT > "$CONTENT_FILE6"
+	{
+	  "type": "AAAA",
+	  "content": "$IP6"
+	}
+	CONTENT
+	TMPFILE="$(mktemp)"
+	curl -sLD - -X PATCH "$CLOUDFLARE_URL/zones/$ZONE_ID/dns_records/$RECORD_ID6" \
+	     -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
+	     -H "Content-type: application/json" \
+	     --data "@$CONTENT_FILE6" \
+	     | tee "$TMPFILE"  > /dev/null
+	RAW_RESPONSE="$(cat $TMPFILE)"
+	RAW_HEADERS="$(cat $TMPFILE| sed -n '1,/^\s*$/p'| head -n-1)"
+	RAW_BODY="$(cat $TMPFILE| sed -n '/^\s*$/,$p'| tail -n +2)"
+	RAW_PARSED="$(echo "$RAW_BODY" | jq '' -)"
+	ERRORS="$(echo "$RAW_PARSED" | jq .errors -)"
+	SUCCESS="$(echo "$RAW_PARSED" | jq .success -)"
+	MESSAGES="$(echo "$RAW_PARSED" | jq .messages -)"
+	RESULT="$(echo "$RAW_PARSED" | jq .result -)"
+	if [ "$MESSAGES" != '[]' ]; then
+	  echo "$MESSAGES" >&2
+	fi
+	if [ "$ERRORS" != '[]' ]; then
+	  echo "$ERRORS" >&2
+	fi
+	if [ -z "$SILENT" ] || [ "$SUCCESS" != "true" ]; then
+	  echo "$RESULT" | jq '' -
+	fi
+	rm "$TMPFILE"
+	rm "$CONTENT_FILE6"
+fi
