@@ -100,7 +100,7 @@ curl -sLD - -X PATCH "$CLOUDFLARE_URL/zones/$ZONE_ID/dns_records/$RECORD_ID" \
 RAW_RESPONSE="$(cat $TMPFILE)"
 RAW_HEADERS="$(cat $TMPFILE| sed -n '1,/^\s*$/p'| head -n-1)"
 RAW_BODY="$(cat $TMPFILE| sed -n '/^\s*$/,$p'| tail -n +2)"
-RAW_PARSED="$(echo "$RAW_BODY" | jq '' -)"
+RAW_PARSED="$(echo "$RAW_BODY" | jq)"
 ERRORS="$(echo "$RAW_PARSED" | jq .errors -)"
 SUCCESS="$(echo "$RAW_PARSED" | jq .success -)"
 MESSAGES="$(echo "$RAW_PARSED" | jq .messages -)"
@@ -112,7 +112,7 @@ if [ "$ERRORS" != '[]' ]; then
   echo "$ERRORS" >&2
 fi
 if [ -z "$SILENT" ] || [ "$SUCCESS" != "true" ]; then
-  echo "$RESULT" | jq '' -
+  echo "$RESULT" | jq
 fi
 rm "$TMPFILE"
 rm "$CONTENT_FILE"
